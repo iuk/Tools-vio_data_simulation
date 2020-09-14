@@ -23,6 +23,8 @@ ${SOPHUS_INCLUDE_DIR} # for both sophus and geographiclib
 ${OPENCV_INCLUDE_DIR}
 )
 
+include_directories( "/usr/local/include/")
+
 LIST(APPEND LINK_LIBS
 ${OpenCV_LIBS}
 ${Sophus_LIBRARIES}
