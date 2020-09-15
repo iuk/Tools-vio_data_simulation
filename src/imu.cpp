@@ -98,6 +98,18 @@ void IMU::addIMUnoise(MotionData& data) {
 // 从运动模型中获取 某时刻的 运动数据(MotionData)
 MotionData IMU::MotionModel(double t) {
   MotionData data;
+
+  {
+    // 静止模型
+    data.imu_gyro     = Eigen::Vector3d(0,0,0);
+    data.imu_acc      = Eigen::Vector3d(0,0,9.81);
+    data.Rwb          = Eigen::MatrixXd::Identity(3,3);
+    data.twb          = Eigen::Vector3d(0,0,0);
+    data.imu_velocity = Eigen::Vector3d(0,0,0);
+    data.timestamp    = t;
+    return data;
+  }
+
   // param
   float ellipse_x = 15;
   float ellipse_y = 20;
@@ -105,9 +117,10 @@ MotionData IMU::MotionModel(double t) {
   float K1        = 10;         // z轴的正弦频率是x，y的k1倍
   float K         = M_PI / 10;  // 20 * K = 2pi 　　由于我们采取的是时间是20s, 系数K控制yaw正好旋转一圈，运动一周
 
+  // === 位置变化模型 ===
   // translation
   // twb:  body frame in world frame
-  // 世界系下的机体系的位置坐标
+  // 世界系下 机体系 位置坐标
   Eigen::Vector3d position(ellipse_x * cos(K * t) + 5,
                            ellipse_y * sin(K * t) + 5,
                            z * sin(K1 * K * t) + 5);
@@ -124,13 +137,15 @@ MotionData IMU::MotionModel(double t) {
   Eigen::Vector3d ddp(-K2 * ellipse_x * cos(K * t),
                       -K2 * ellipse_y * sin(K * t),
                       -z * K1 * K1 * K2 * sin(K1 * K * t));
-
+  
+  // === 姿态变化模型 === rpy 角与时间的关系
   // Rotation
   double k_roll  = 0.1;
   double k_pitch = 0.2;
   // roll ~ [-0.2, 0.2], pitch ~ [-0.3, 0.3], yaw ~ [0,2pi]
   Eigen::Vector3d eulerAngles(k_roll * cos(t), k_pitch * sin(t), K * t);    
   // euler angles 的导数
+  // rpy 角的时间导数
   Eigen::Vector3d eulerAnglesRates(-k_roll * sin(t), k_pitch * cos(t), K);  
 
   //    Eigen::Vector3d eulerAngles(0.0,0.0, K*t );   // roll ~ 0, pitch ~ 0, yaw ~ [0,2pi]
@@ -210,13 +225,12 @@ void IMU::testImu(std::string src, std::string dist) {
                 << Pwb(0) << " "
                 << Pwb(1) << " "
                 << Pwb(2) << " "
-                << Qwb.w() << " "
-                << Qwb.x() << " "
-                << Qwb.y() << " "
-                << Qwb.z() << " "
-                << Pwb(0) << " "
-                << Pwb(1) << " "
-                << Pwb(2) << " "
+                << imupose.imu_gyro(0) << " "
+                << imupose.imu_gyro(1) << " "
+                << imupose.imu_gyro(2) << " "
+                << imupose.imu_acc(0) << " "
+                << imupose.imu_acc(1) << " "
+                << imupose.imu_acc(2) << " "
                 << std::endl;
   }
 
