@@ -101,14 +101,16 @@ int main() {
 
   // create imu data
   // imu pose gyro acc
-  std::vector<MotionData> imudata;
-  std::vector<MotionData> imudata_noise;
+  std::vector<MotionData> imudata;  //保存理想 IMU 测量数据
+  std::vector<MotionData> imudata_noise;  // 保存带噪声和偏置的 IMU 测量数据
   for (float t = params.t_start; t < params.t_end;) {
     // 从运动模型中获取时间 t 时的运动数据
+    // 依据运动模型生成理想 IMU 测量数据储存在 MotionData 中
     MotionData data = imuGen.MotionModel(t);
     imudata.push_back(data);
 
     // add imu noise
+    // 向 MotionData 中的理想 IMU 数据加入 偏置和噪声
     MotionData data_noise = data;
     imuGen.addIMUnoise(data_noise);
     imudata_noise.push_back(data_noise);
@@ -118,18 +120,26 @@ int main() {
   imuGen.init_velocity_ = imudata[0].imu_velocity;
   imuGen.init_twb_      = imudata.at(0).twb;
   imuGen.init_Rwb_      = imudata.at(0).Rwb;
+
+  // 保存理想 IMU 测量数据
   save_Pose("imu_pose.txt", imudata);
+  // 保存带噪声和偏置的 IMU 测量数据
   save_Pose("imu_pose_noise.txt", imudata_noise);
 
-  imuGen.testImu("imu_pose.txt", "imu_int_pose.txt");  // test the imu data, integrate the imu data to generate the imu trajecotry
+  // test the imu data, integrate the imu data to generate the imu trajecotry
+  // 计算 IMU 数据 位姿积分生成的轨迹，并保存
+  imuGen.testImu("imu_pose.txt", "imu_int_pose.txt");  
   imuGen.testImu("imu_pose_noise.txt", "imu_int_pose_noise.txt");
 
   // cam pose
+  // 生成 理想情况 camera 位姿
   std::vector<MotionData> camdata;
   for (float t = params.t_start; t < params.t_end;) {
+    // 生成 理想 IMU 位姿
     MotionData imu = imuGen.MotionModel(t);  // imu body frame to world frame motion
     MotionData cam;
 
+    // 理想 IMU 位姿 转为 理想 camera 位姿
     cam.timestamp = imu.timestamp;
     cam.Rwb       = imu.Rwb * params.R_bc;            // cam frame in world frame
     cam.twb       = imu.twb + imu.Rwb * params.t_bc;  //  Tcw = Twb * Tbc ,  t = Rwb * tbc + twb
@@ -137,10 +147,12 @@ int main() {
     camdata.push_back(cam);
     t += 1.0 / params.cam_frequency;
   }
+  // 储存 理想 camera 位姿
   save_Pose("cam_pose.txt", camdata);
   save_Pose_asTUM("cam_pose_tum.txt", camdata);
 
   // points obs in image
+  // 遍历 理想 camera 位姿
   for (int n = 0; n < camdata.size(); ++n) {
     MotionData data       = camdata[n];
     Eigen::Matrix4d Twc   = Eigen::Matrix4d::Identity();
@@ -148,15 +160,22 @@ int main() {
     Twc.block(0, 3, 3, 1) = data.twb;
 
     // 遍历所有的特征点，看哪些特征点在视野里
-    std::vector<Eigen::Vector4d, Eigen::aligned_allocator<Eigen::Vector4d> > points_cam;    // ３维点在当前cam视野里
-    std::vector<Eigen::Vector2d, Eigen::aligned_allocator<Eigen::Vector2d> > features_cam;  // 对应的２维图像坐标
+    // cam 系下 3d 点
+    std::vector<Eigen::Vector4d, Eigen::aligned_allocator<Eigen::Vector4d> > points_cam;    
+    // 归一化平面下 2d 坐标
+    std::vector<Eigen::Vector2d, Eigen::aligned_allocator<Eigen::Vector2d> > features_cam;  
+    
+    // 遍历 3d 地图点
     for (int i = 0; i < points.size(); ++i) {
+      // world 系下的 point
       Eigen::Vector4d pw  = points[i];           // 最后一位存着feature id
       pw[3]               = 1;                   //改成齐次坐标最后一位
+      // camera 系下的 point
       Eigen::Vector4d pc1 = Twc.inverse() * pw;  // T_wc.inverse() * Pw  -- > point in cam frame
 
       if (pc1(2) < 0) continue;  // z必须大于０,在摄像机坐标系前方
 
+      // 归一化平面下 的 2d point
       Eigen::Vector2d obs(pc1(0) / pc1(2), pc1(1) / pc1(2));
       // if( (obs(0)*460 + 255) < params.image_h && ( obs(0) * 460 + 255) > 0 &&
       // (obs(1)*460 + 255) > 0 && ( obs(1)* 460 + 255) < params.image_w )
@@ -167,12 +186,14 @@ int main() {
     }
 
     // save points
+    // 保存每一个位姿下的所有的 cam 系 3d 点和像素系 2d 坐标
     std::stringstream filename1;
     filename1 << "keyframe/all_points_" << n << ".txt";
     save_features(filename1.str(), points_cam, features_cam);
   }
 
   // lines obs in image
+  // 遍历所有理想 cam 位姿
   for (int n = 0; n < camdata.size(); ++n) {
     MotionData data       = camdata[n];
     Eigen::Matrix4d Twc   = Eigen::Matrix4d::Identity();

@@ -155,9 +155,10 @@ MotionData IMU::MotionModel(double t) {
   return data;
 }
 
-//读取生成的imu数据并用imu动力学模型对数据进行计算，最后保存imu积分以后的轨迹，
+//读取生成的imu数据并用imu运动学模型对数据进行计算，最后保存imu积分以后的轨迹，
 //用来验证数据以及模型的有效性。
 void IMU::testImu(std::string src, std::string dist) {
+  // 读入 IMU 测量数据
   std::vector<MotionData> imudata;
   LoadPose(src, imudata);
 
@@ -171,25 +172,34 @@ void IMU::testImu(std::string src, std::string dist) {
   Eigen::Vector3d gw(0, 0, -9.81);      // ENU frame
   Eigen::Vector3d temp_a;
   Eigen::Vector3d theta;
+
+  // 遍历 IMU 测量数据
   for (int i = 1; i < imudata.size(); ++i) {
     MotionData imupose = imudata[i];
 
-    //delta_q = [1 , 1/2 * thetax , 1/2 * theta_y, 1/2 * theta_z]
-    Eigen::Quaterniond dq;
-    Eigen::Vector3d dtheta_half = imupose.imu_gyro * dt / 2.0;
-    dq.w()                      = 1;
-    dq.x()                      = dtheta_half.x();
-    dq.y()                      = dtheta_half.y();
-    dq.z()                      = dtheta_half.z();
-    dq.normalize();
+    {
+      // === IMU 位姿积分，基于欧拉积分 ===
+      // 1. 计算世界系加速度，依据世界系姿态
+      Eigen::Vector3d gw(0, 0, -9.81);  // ENU frame
+      Eigen::Vector3d acc_w = Qwb * (imupose.imu_acc) + gw;
+      // 2. 更新世界系位置 P
+      Pwb = Pwb + Vw * dt + 0.5 * dt * dt * acc_w;
+      // 3. 更新世界系速度 V
+      Vw = Vw + acc_w * dt;
+      // 4. 计算四元数旋转小量，基于三轴角速度
+      Eigen::Quaterniond dq;
+      // 旋转小量 ω·Δt = Δθ ，旋转小量 Δq = [1,½Δθ]
+      Eigen::Vector3d dtheta_half = imupose.imu_gyro * dt / 2.0;
+      dq.w()                      = 1;
+      dq.x()                      = dtheta_half.x();
+      dq.y()                      = dtheta_half.y();
+      dq.z()                      = dtheta_half.z();
+      dq.normalize();
+      // 5. 更新世界系姿态 Q
+      Qwb = Qwb * dq;
+    }
 
-    /// imu 动力学模型 欧拉积分
-    Eigen::Vector3d acc_w = Qwb * (imupose.imu_acc) + gw;  // aw = Rwb * ( acc_body - acc_bias ) + gw
-    Qwb                   = Qwb * dq;
-    Pwb                   = Pwb + Vw * dt + 0.5 * dt * dt * acc_w;
-    Vw                    = Vw + acc_w * dt;
-
-    /// 中值积分
+    // 中值积分
 
     //　按着imu postion, imu quaternion , cam postion, cam quaternion 的格式存储，由于没有cam，所以imu存了两次
     save_points << imupose.timestamp << " "
